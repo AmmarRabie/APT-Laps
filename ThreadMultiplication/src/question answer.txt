@@ -1,0 +1,1 @@
+We have to join the multiplication threads before trying to print matrix 'C' so that we print the right values

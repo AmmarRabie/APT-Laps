@@ -1,0 +1,10 @@
+testjava/
+Training/
+APT_Laps/
+.metadata/
+.recommenders/
+
+
+*.class
+*.classpath
+*.project
