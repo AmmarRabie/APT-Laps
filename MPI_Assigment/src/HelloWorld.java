@@ -12,17 +12,18 @@ import mpi.*;
 
 public class HelloWorld {
 
-	public static String mainPath = "/mnt/D/TA/CMP(N)306 Advanced Programming/2018/Labs/Lab 5/";
-
 	public static void main(String args[]) throws Exception {
 		MPI.Init(args);
 
 		int myRank = MPI.COMM_WORLD.Rank();
+		int numProcess = MPI.COMM_WORLD.Size();
 		System.out.println("Hi, I am <" + myRank + ">");
 
 		int[] sendbuf;
 		int[] recvbuf;
-		int size = 3;
+		int inputSize = 0; // any default value
+
+		int[] inputSizeMes = new int[1];
 
 		if (myRank == 0) { // root process
 			// • Read array from a file
@@ -32,19 +33,35 @@ public class HelloWorld {
 			// • Receive the summation result from each process
 			// • Calculate the final sum and print it
 			int[] theBigArray = readArray();
-			size = theBigArray.length;
+			inputSize = theBigArray.length;
+			rankPrint("the size of the input is " + inputSize);
 
+			// tell the world that the data is valid now sending its length
+			inputSizeMes[0] = inputSize;
+			MPI.COMM_WORLD.Bcast(inputSizeMes, 0, 1, MPI.INT, 0);
+			
+			// scattering the data
 			sendbuf = theBigArray;
-			recvbuf = new int[1];
-
-			MPI.COMM_WORLD.Scatter(sendbuf, 0, size/3, MPI.INT, recvbuf, 0, 1, MPI.INT, 0);
-			for (int i = 0; i < size; i++) {
-				System.out.println("I SENT" + sendbuf[i]);
-			}
-
-			for (int i = 0; i < 1; i++) {
-				System.out.println("I found" + recvbuf[i]);
-			}
+			int divideCount = inputSize / numProcess;
+			recvbuf = new int[divideCount];
+			MPI.COMM_WORLD.Scatter(sendbuf, 0, divideCount, MPI.INT, recvbuf, 0, divideCount, MPI.INT, 0);
+			
+			// local summation
+			int localSum = sumArray(recvbuf);
+			rankPrint("My local sum is " + localSum);
+			
+			// reducing
+			int[] localSumBuf = new int[1];
+			localSumBuf[0] = localSum;
+			int[] result = new int[1];
+			MPI.COMM_WORLD.Reduce(localSumBuf, 0, result, 0, 1, MPI.INT, MPI.SUM, 0);
+			
+			// sum remaining elements
+			for(int i = 0; i < inputSize % numProcess;i++)
+				result[0] += theBigArray[inputSize - 1 - i];
+			
+			// print the global sum
+			rankPrint("final sum = " + result[0]);
 		} else { // Other processes
 			// • Receive its share of the elements of the array
 			// • Print whether the elements are received or not (if not block till you
@@ -52,19 +69,39 @@ public class HelloWorld {
 			// • Calculate the local sum
 			// • Send it to the root (process with rank 0)
 			// • Print the local sum and exit
-//			int[] dummy = new int[4]; // Although it is not needed, it needs to match the total number of sent
-//										// messages
-//			int[] Scatter_recvbuf = new int[2];
-//			// the sendpart have to match the original send, so does the rec (should match
-//			// the send)
-//			MPI.COMM_WORLD.Scatter(dummy, 0, 2, MPI.INT, Scatter_recvbuf, 0, 2, MPI.INT, 0);
-//			for (int i = 0; i < 2; i++) {
-//				System.out.println("I am receiving from " + Scatter_recvbuf[i]);
-//				Scatter_recvbuf[i] = Scatter_recvbuf[i] * 10;
-//			}
+
+			// wait till the root prepare the data
+			rankPrint("waiting");
+
+			// wait till the input size come
+			MPI.COMM_WORLD.Bcast(inputSizeMes, 0, 1, MPI.INT, 0);
+			inputSize = inputSizeMes[0];
+
+			rankPrint("started");
+
+			int[] dummy = new int[inputSize];
+
+			int divideCount = inputSize / numProcess;
+			recvbuf = new int[divideCount];
+			MPI.COMM_WORLD.Scatter(dummy, 0, divideCount, MPI.INT, recvbuf, 0, divideCount, MPI.INT, 0);
+
+			// summation
+			int localSum = sumArray(recvbuf);
+			rankPrint("My local sum is " + localSum);
+
+			// reducing
+			int[] localSumBuf = new int[1];
+			localSumBuf[0] = localSum;
+			int[] result = new int[1];
+			MPI.COMM_WORLD.Reduce(localSumBuf, 0, result, 0, 1, MPI.INT, MPI.SUM, 0);
 		}
-		System.out.println("Process " + myRank + " exiting ...");
+		rankPrint("Good bye :(");
 		MPI.Finalize();
+	}
+
+	private static void rankPrint(String message) {
+		int currRank = MPI.COMM_WORLD.Rank();
+		System.out.println("Process " + currRank + ": saying '" + message + "'");
 	}
 
 	private static int[] readArray() {
@@ -75,13 +112,21 @@ public class HelloWorld {
 			while (s.hasNextInt()) {
 				int num = s.nextInt();
 				numbers.add(num);
-				s.close();
-				return numbers.stream().mapToInt(i -> i).toArray();
 			}
+			s.close();
+			return numbers.stream().mapToInt(i -> i).toArray();
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
 		}
 		return null;
+	}
+
+	private static int sumArray(int[] arr) {
+		int sum = 0;
+		for (int i = 0; i < arr.length; i++) {
+			sum += arr[i];
+		}
+		return sum;
 	}
 
 }
